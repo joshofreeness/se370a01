@@ -9,6 +9,7 @@ while (True):
 	arg = input(os.getcwd() + "$> ")
 
 	#Handle "PWD"
+	#and stuff
 	if(arg == "pwd"):
 		print(os.getcwd())
 		continue
