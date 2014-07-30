@@ -8,6 +8,7 @@ import os
 while (True):
 	arg = input(os.getcwd() + "$> ")
 
+	#Handle "PWD"
 	if(arg == "pwd"):
 		print(os.getcwd())
 		continue
