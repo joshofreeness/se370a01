@@ -1,0 +1,96 @@
+Joshua Free jfre553 2646577
+1)
+
+def execute(list_arg, amper, history, jobs):
+    input_fid = sys.stdin.fileno()
+    output_fid = sys.stdout.fileno()
+    first_read = None
+    last_read = None
+    pid_main = os.fork()
+    current_child_pid = pid_main
+    
+    #If in the child process
+    if pid_main == 0:
+
+        #if piping
+        if "|" in list_arg:
+            list_pipe = list_to_list_pipe(list_arg)
+            #Pipe and save read and write
+            first_read, first_write = os.pipe()
+
+            #fork
+            pid = os.fork()
+            #execute first command
+            execute_command(list_pipe[0], input_fid, first_write, pid, history, jobs)
+
+
+            if len(list_pipe) == 2:
+                #Reassign read and write
+                last_read = first_read
+            else:
+                last_read = first_read
+
+                #loop through the second command to the second to last command
+                for x in range(1, len(list_pipe) - 1):
+
+                    #New pipe
+                    new_read, new_write = os.pipe()
+                    #fork 
+                    pid = os.fork()
+                    #Execute with the previous read pipe and the new write pipe
+                    execute_command(list_pipe[x], last_read, new_write, pid, history, jobs)
+
+                    last_read = new_read
+            #fork again
+            pid = os.fork()
+            #Execute the last command with stdout as output
+            execute_command(list_pipe[-1], last_read, output_fid, pid, history, jobs)
+            try:
+                os.wait()
+            except InterruptedError:
+                pass
+            exit()
+
+        else:
+            pid = os.fork()
+            execute_command(list_arg, input_fid, output_fid, pid, history, jobs)
+            try:
+                os.wait()
+            except InterruptedError:
+                pass
+
+            #jobs.pop(pid_value)
+            exit()
+    if pid_main != 0:
+        jobs.append(pid_main)
+
+
+
+    if not amper:
+        try:
+            os.wait()
+        except InterruptedError:
+            pass
+        current_child_pid = None
+    else:
+        print("[{0}] {1}".format(len(jobs), jobs[-1]))
+
+
+def execute_command(command, input_fid, output_fid, pid, history, jobs):
+
+    if pid == 0:
+        os.dup2(input_fid, sys.stdin.fileno())
+        os.dup2(output_fid, sys.stdout.fileno())
+
+        if len(command) == 1:
+            check_inbuilt(command, history, jobs)
+            os.execvp(command[0], [""])
+            print("THIS SHOULD NEVER BE PRINTED")
+        check_inbuilt(command, history, jobs)
+        os.execvp(command[0], command)
+        print("THIS SHOULD NEVER BE PRINTED")
+
+
+
+
+2) This is because when piping it does commands in a new process. So the cd .. does execute in its own process, but this however does not effect any other processes, particularly the pwd process. The pwd is not effected by the cd .. so prints the original working directory.

@@ -2,12 +2,61 @@
 import os
 import shlex
 import sys
+import subprocess
+import signal
 
+jobs = []
+current_child_pid = None
+
+def intercept_z(signum, frame):
+    process = current_child_pid
+    if process is not None:
+        jobs.append(process)
+        os.kill(process, signal.SIGKILL)
+    for job in jobs:
+        try:
+            fo = open("/proc/{0}/status".format(job),"r")
+            fo.readline()
+            line = fo.readline()
+            if ("zombie" in line) or ("done" in line):
+                jobs.remove(job)
+                os.waitpid(job, 0)
+
+            fo.close()
+            
+        except FileNotFoundError:
+            jobs.remove(job)
+    x=1
+    for job in jobs:
+        # subp = subprocess.Popen(["ps", "-p", str(job), "-o", "state="])
+        # out = subp.communicate()
+        try:
+            out = subprocess.check_output(["ps", "-p", str(job), "-o", "state="])
+        except subprocess.CalledProcessError:
+            out=[68,0]
+            jobs.remove(job)
+        status=out[0]
+        if out[0] == 83:
+            status = "Sleeping"
+        if out[0] == 90:
+            os.waitpid(job, 0)
+            status = "Done"
+        if out[0] == 68:
+            status = "Done" 
+
+        print ("[{0}] <{1}> cmd_string ({2})".format(x+1,status,job))
+        x+=1
+
+
+    #print("HAHAHAHAHAHAHAHA")
+
+
+signal.signal(signal.SIGTSTP, intercept_z)
 
 def main():
     counter = 0
     history = {}
-    jobs = []
+    
     initial_directory = os.getcwd()
 
     while True:
@@ -20,7 +69,7 @@ def main():
                 line = fo.readline()
                 if ("zombie" in line) or ("done" in line):
                     jobs.remove(job)
-                    #print("Closed")
+                    os.waitpid(job, 0)
                 fo.close()
                 
             except FileNotFoundError:
@@ -30,8 +79,9 @@ def main():
         redirected = not os.isatty(sys.stdin.fileno())
 
         if redirected:
+            print ("$>"),
             arg = sys.stdin.readline()
-            print(arg)
+            print(arg),
             if not arg:
                 exit()
         else:
@@ -107,38 +157,58 @@ def execute(list_arg, amper, history, jobs):
     first_read = None
     last_read = None
     pid_main = os.fork()
+    current_child_pid = pid_main
     
-    #pid_value = len(jobs) - 1
+    #If in the child process
     if pid_main == 0:
+
+        #if piping
         if "|" in list_arg:
             list_pipe = list_to_list_pipe(list_arg)
+            #Pipe and save read and write
             first_read, first_write = os.pipe()
+
+            #fork
             pid = os.fork()
+            #execute first command
             execute_command(list_pipe[0], input_fid, first_write, pid, history, jobs)
 
+
             if len(list_pipe) == 2:
+                #Reassign read and write
                 last_read = first_read
             else:
                 last_read = first_read
 
+                #loop through the second command to the second to last command
                 for x in range(1, len(list_pipe) - 1):
 
-                    #print(list_pipe[x])
+                    #New pipe
                     new_read, new_write = os.pipe()
-
+                    #fork 
                     pid = os.fork()
+                    #Execute with the previous read pipe and the new write pipe
                     execute_command(list_pipe[x], last_read, new_write, pid, history, jobs)
 
                     last_read = new_read
+            #fork again
             pid = os.fork()
+            #Execute the last command with stdout as output
             execute_command(list_pipe[-1], last_read, output_fid, pid, history, jobs)
-            os.wait()
+            try:
+                os.wait()
+            except InterruptedError:
+                pass
             exit()
 
         else:
             pid = os.fork()
             execute_command(list_arg, input_fid, output_fid, pid, history, jobs)
-            os.wait()
+            try:
+                os.wait()
+            except InterruptedError:
+                pass
+
             #jobs.pop(pid_value)
             exit()
     if pid_main != 0:
@@ -147,7 +217,11 @@ def execute(list_arg, amper, history, jobs):
 
 
     if not amper:
-        os.wait()
+        try:
+            os.wait()
+        except InterruptedError:
+            pass
+        current_child_pid = None
     else:
         print("[{0}] {1}".format(len(jobs), jobs[-1]))
 
@@ -197,15 +271,33 @@ def check_inbuilt(command, history, jobs):
                 line = fo.readline()
                 if ("zombie" in line) or ("done" in line):
                     jobs.remove(job)
-                    #print("Closed")
-                
+                    os.waitpid(job, 0)
+
                 fo.close()
                 
             except FileNotFoundError:
                 jobs.remove(job)
+        x=1
+        for job in jobs:
+            # subp = subprocess.Popen(["ps", "-p", str(job), "-o", "state="])
+            # out = subp.communicate()
+            try:
+                out = subprocess.check_output(["ps", "-p", str(job), "-o", "state="])
+            except subprocess.CalledProcessError:
+                out=[68,0]
+                jobs.remove(job)
+            status=out[0]
+            if out[0] == 83:
+                status = "Sleeping"
+            if out[0] == 90:
+                status = "Zombie"
+            if out[0] == 68:
+                status = "Done" 
 
-        for x in range(len(jobs)):
-            print ("[{0}] <status> cmd_string ({1})".format(x+1,jobs[x]))
+            print ("[{0}] <{1}> cmd_string ({2})".format(x+1,status,job))
+            x+=1
+
+            
         exit()
 
     return
